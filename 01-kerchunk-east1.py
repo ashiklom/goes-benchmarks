@@ -9,7 +9,7 @@ from fsspec.implementations.local import LocalFileSystem
 import dask
 from dask.delayed import delayed
 
-base_path = 's3://noaa-goes16/ABI-L1b-RadC/2019/203'
+base_path = 's3://noaa-goes16/ABI-L1b-RadF/2019/203'
 outdir = "./data/results/kerchunk-east1"
 anon=True
 

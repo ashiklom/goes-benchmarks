@@ -1,5 +1,5 @@
 from dask.distributed import Client, LocalCluster, progress
-cluster = LocalCluster()
+cluster = LocalCluster(n_workers=2)
 client = Client(cluster)
 
 import s3fs
@@ -30,10 +30,8 @@ hrs = fs.ls(base_path)
 # This step can take a while if done sequentially...so we accelerate it with dask
 all_paths_raw = ls_recursive(hrs)
 
-# Both RadC and RadF files are present in that folder. So, stick to only the 
-# RadC files, for parity with the official NOAA data.
-
-all_paths = [p for p in all_paths_raw if "ABI-L1b-RadC" in p]
+# In case both RadC and RadF files are present, use only the RadF files.
+all_paths = sorted([p for p in all_paths_raw if "ABI-L1b-RadF" in p])
 
 from pangeo_forge_recipes.patterns import pattern_from_file_sequence
 
