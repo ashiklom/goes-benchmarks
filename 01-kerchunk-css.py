@@ -79,3 +79,8 @@ mzz = MultiZarrToZarr(
 )
 
 mzz.translate(filename="result.json")
+
+# Try converting indices to Parquet. This works, but then I can't open for some 
+# reason...
+import kerchunk.df
+kerchunk.df.refs_to_dataframe("result.json", "result.parquet")
