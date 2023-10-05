@@ -53,13 +53,25 @@ pathbag = db.from_sequence(all_paths).map(gen_json)
 pb = pathbag.persist()
 progress(pb)
 
-# Consolidate results
+# Test opening one JSON
 import xarray as xr
-d0 = xr.open_dataset(all_paths[0])
+
+d0 = xr.open_dataset("reference://", engine = "zarr", backend_kwargs={
+    "consolidated": False,
+    "storage_options": {
+        "fo": json_list[0]
+    }
+})
+
+# Consolidate results
 from kerchunk.combine import MultiZarrToZarr
-json_list = glob.glob(f"{outdir}/*.json")
+json_list = sorted(glob.glob(f"{outdir}/*.json"))
+
+# Hitting an error here...
 mzz = MultiZarrToZarr(
     json_list,
-    concat_dims = "t",
+    concat_dims = ["t"],
     identical_dims = list(d0.dims.keys())
 )
+
+mzz.translate(filename="result.json")
