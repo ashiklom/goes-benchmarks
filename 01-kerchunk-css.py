@@ -56,6 +56,7 @@ progress(pb)
 # Test opening one JSON
 import xarray as xr
 
+json_list = sorted(glob.glob(f"{outdir}/*.json"))
 d0 = xr.open_dataset("reference://", engine = "zarr", backend_kwargs={
     "consolidated": False,
     "storage_options": {
@@ -63,13 +64,16 @@ d0 = xr.open_dataset("reference://", engine = "zarr", backend_kwargs={
     }
 })
 
+# Some JSON files are empty! Screen them out here.
+# Need to understand why that is. 
+json_good = [f for f in json_list if os.path.getsize(f) > 0]
+json_bad = sorted(set(json_list) - set(json_good))
+
 # Consolidate results
 from kerchunk.combine import MultiZarrToZarr
-json_list = sorted(glob.glob(f"{outdir}/*.json"))
 
-# Hitting an error here...
 mzz = MultiZarrToZarr(
-    json_list,
+    json_good,
     concat_dims = ["t"],
     identical_dims = list(d0.dims.keys())
 )
