@@ -15,4 +15,4 @@
 	- Browse the data at https://noaa-goes16.s3.amazonaws.com/index.html
   - (Replace 16 with 17 to get GOES 17)
 
-4. Use ncks to re-chunk the data to 500,500 and 1000,1000 and repeat 2. Notice that you will need to regenerate the sidecar files for these new chunks.
+4. Use `ncks` to re-chunk the data to 500,500 and 1000,1000 and repeat 2. Notice that you will need to regenerate the sidecar files for these new chunks.
