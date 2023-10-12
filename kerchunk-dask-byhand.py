@@ -45,7 +45,7 @@ def process_chunk(paths, outfile):
     good = [r for r in results if r["success"]]
     bad = [r for r in results if not r["success"]]
     for item in bad:
-        fname = os.path.basename(bad) + ".json"
+        fname = os.path.basename(item["file"]) + ".json"
         fpath = os.path.join(BADFILES, fname)
         with open(fpath, "w") as f:
             f.write(ujson.dumps(item))
