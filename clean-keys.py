@@ -31,7 +31,7 @@ def fix_paths(dct, fname):
         val = refs[key]
         if type(val) == list and len(val) == 3 and val[0] is None:
             val[0] = fname
-    return refs
+    return dct
 
 rgood = redis.Redis(db=0)
 rfixed = redis.Redis(db=2)
