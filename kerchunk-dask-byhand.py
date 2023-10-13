@@ -14,15 +14,28 @@ import dask
 
 import ujson
 import math
+import argparse
 
-RESULTS = "results"
+parser = argparse.ArgumentParser()
+parser.add_argument('--year', type=int, default=2022)
+parser.add_argument('--doy', type=int, default=1)
+parser.add_argument('--chunksize', type=int, default=50)
+args = parser.parse_args()
+# args = parser.parse_args(["--year", "2022", "--doy", "1"])
+
+DDIR = os.path.join(f"{args.year:04d}", f"{args.doy:03d}")
+RESULTS = os.path.join("results")
 BADFILES = os.path.join(RESULTS, "badfiles")
-CHUNKS = os.path.join(RESULTS, "chunks")
-CHUNKSIZE = 200
+CHUNKS = os.path.join(RESULTS, "chunks", DDIR)
+CHUNKSIZE = args.chunksize
+
+finaldir = os.path.join(RESULTS, "final")
+os.makedirs(finaldir, exist_ok=True)
+finalfile = os.path.join(finaldir, f"{args.year:04d}-{args.doy:03d}.json")
 
 CACHEFILE = "goesfiles-all"
-BASEPATH = '/css/geostationary/BackStage/GOES-17-ABI-L1B-FULLD/2022/'
-# BASEPATH = '/css/geostationary/BackStage/GOES-17-ABI-L1B-FULLD/2022/001'
+BASEPATH = os.path.join("/css/geostationary/BackStage/GOES-17-ABI-L1B-FULLD", DDIR) 
+assert os.path.exists(BASEPATH)
 
 def gen_refs(f):
     """
@@ -71,6 +84,8 @@ def chunk_list(lst, n):
 
 if __name__ == '__main__':
 
+    assert not os.path.exists(finalfile), f"{finalfile} already exists. Exiting..."
+
     import time
     print(f"Starting at {time.strftime('%c', time.localtime())}")
 
@@ -107,11 +122,11 @@ if __name__ == '__main__':
 
     pathtasks = [dask.delayed(process_chunk)(path, name) for path, name in zip(all_paths_chunked, chunknames)]
 
-    print("Beginning processing...")
+    print("Beginning processing individual chunks...")
     start_time = time.time()
-    # pb = dask.persist(pathtasks)
-    # progress(pb)
-    dask.compute(pathtasks)
+    pb = dask.persist(pathtasks)
+    progress(pb)
+    # dask.compute(pathtasks)
     end_time = time.time()
 
     elapsed = end_time - start_time
@@ -119,3 +134,29 @@ if __name__ == '__main__':
     rate = float(nfiles) / elapsed
     print(f"Processed {nfiles} files in {elapsed:.2f} seconds ({rate:.2f} files/sec)")
     print(f"Done at {time.strftime('%c', time.localtime())}")
+
+    chunk_results = dask.compute(pathtasks)
+
+    # Identify common dimensions from the first result
+    d0 = xr.open_dataset("reference://", engine="zarr", backend_kwargs={
+        "consolidated": False,
+        "storage_options": {"fo": chunk_results[0][0]}
+    })
+    identical_dims = list(d0.dims.keys())
+    identical_dims.remove("t")
+
+    print("Consolidating chunks into one result")
+    fstart_time = time.time()
+    day_result = MultiZarrToZarr(
+        chunk_results[0],
+        concat_dims=["t"],
+        identical_dims=identical_dims
+    ).translate()
+    with open(finalfile, "wb") as f:
+        f.write(ujson.dumps(day_result).encode())
+
+    fend_time = time.time()
+    felapsed = fend_time - fstart_time
+    print(f"Time spent consolidating: {felapsed:.2f} seconds")
+    print(f"Total time elapsed: {fend_time - start_time:.2f} seconds")
+    print(f"All done at {time.strftime('%c', time.localtime())}")
