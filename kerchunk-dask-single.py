@@ -18,7 +18,8 @@ import math
 RESULTS = "results"
 BADFILES = os.path.join(RESULTS, "badfiles")
 CHUNKS = os.path.join(RESULTS, "chunks")
-CHUNKSIZE = 200
+SINGLES = os.path.join(RESULTS, "singles")
+CHUNKSIZE = 50
 
 CACHEFILE = "goesfiles-all"
 BASEPATH = '/css/geostationary/BackStage/GOES-17-ABI-L1B-FULLD/2022/'
@@ -28,42 +29,18 @@ def gen_refs(f):
     """
     Generate a single Kerchunk reference dictionary for a given NetCDF file
     """
+    fname = os.path.basename(f) + ".json"
+    outfile = os.path.join(SINGLES, fname)
+    if os.path.exists(outfile):
+        return {"file": f, "success": True, "outfile": outfile, "exists": True}
     try:
         with open(f, 'rb') as infile:
             refs = SingleHdf5ToZarr(infile, url=f).translate()
-        return {"file": f, "success": True, "refs": refs}
+        with open(outfile, 'rb') as outfile:
+            outfile.write(ujson.dumps(refs).encode())
+        return {"file": f, "success": True, "outfile": outfile}
     except OSError as error:
         return {"file": f, "success": False, "error": str(error)}
-
-def process_chunk(paths, outfile):
-    """
-    Generate a combined Kerchunk reference for a list of NetCDF files 
-    and dump as JSON to `outfile`.
-    """
-    results = [gen_refs(f) for f in paths]
-
-    good = [r for r in results if r["success"]]
-    bad = [r for r in results if not r["success"]]
-    for item in bad:
-        fname = os.path.basename(item["file"]) + ".json"
-        fpath = os.path.join(BADFILES, fname)
-        with open(fpath, "w") as f:
-            f.write(ujson.dumps(item))
-
-    # Load first dataset to get common dimensions
-    d0 = xr.open_dataset(good[0]["file"])
-    identical_dims = list(d0.dims.keys())
-
-    refs = [r["refs"] for r in good]
-    multi = MultiZarrToZarr(
-        refs,
-        coo_map={"t": "cf:t"},
-        concat_dims=["t"],
-        identical_dims=identical_dims
-    ).translate()
-    with open(outfile, "wb") as f:
-        f.write(ujson.dumps(multi).encode())
-    return outfile
 
 def chunk_list(lst, n):
     for i in range(0, len(lst), n):
@@ -76,6 +53,7 @@ if __name__ == '__main__':
 
     os.makedirs(BADFILES, exist_ok=True)
     os.makedirs(CHUNKS, exist_ok=True)
+    os.makedirs(SINGLES, exist_ok=True)
 
     # Read the file list (or generate it if it doesn't exist)
     if os.path.exists(CACHEFILE):
@@ -89,6 +67,7 @@ if __name__ == '__main__':
         with open(CACHEFILE, 'w') as f:
             f.write("\n".join(all_paths))
 
+    # all_paths = all_paths[0:500]
     print(f"Processing {len(all_paths)} files")
 
     # Launch Dask cluster for parallelization
@@ -105,7 +84,9 @@ if __name__ == '__main__':
     chunknames = [os.path.join(CHUNKS, str(i).zfill(digits) + ".json") for i in range(nchunks)]
     assert len(all_paths_chunked) == len(chunknames)
 
-    pathtasks = [dask.delayed(process_chunk)(path, name) for path, name in zip(all_paths_chunked, chunknames)]
+    chunk_job = dask.delayed(lambda x: [gen_refs(item) for item in x])
+
+    pathtasks = [chunk_job(paths) for paths in all_paths_chunked]
 
     print("Beginning processing...")
     start_time = time.time()
