@@ -34,8 +34,18 @@ import zstandard as zstd
 import os
 
 wstart_time = time.time()
-with zstd.open("results/test.json.zst", "wb") as f:
+outfile = f"results/test_{len(dofiles)}.json.zst"
+with zstd.open(outfile, "wb") as f:
     f.write(ujson.dumps(result).encode())
 wend_time = time.time()
 welapsed = wend_time - wstart_time
-print(f"Writing output took f{welapsed:.03f} sec.")
+print(f"Writing output took {welapsed:.03f} sec.")
+
+# Try opening the file
+dtest = xr.open_dataset("reference://", engine="zarr", backend_kwargs={
+    "consolidated": False,
+    "storage_options": {
+        "fo": outfile,
+        "target_options": {"compression": "zstd"}
+    }
+})
