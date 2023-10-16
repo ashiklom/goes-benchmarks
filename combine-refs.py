@@ -1,45 +1,41 @@
 #!/usr/bin/env python
 
-import redis
 import ujson
+import glob
+import time
 
 import xarray as xr
 
-from kerchunk.hdf import SingleHdf5ToZarr
 from kerchunk.combine import MultiZarrToZarr
 
-rgood = redis.Redis(db=2)
-all_keys = sorted(rgood.keys())
+chunkfiles = sorted(glob.glob("results/final/*.json"))
 
-def chunk_list(lst, n):
-    for i in range(0, len(lst), n):
-        yield lst[i:i+n]
+# Read first file to get common dimensions
+d0 = xr.open_dataset("reference://", engine="zarr", backend_kwargs={
+    "consolidated": False,
+    "storage_options": {"fo": chunkfiles[0]}
+})
+identical_dims = list(d0.dims.keys())
+identical_dims.remove("t")
 
-all_keys_chunked = list(chunk_list(all_keys, 50))
+start_time = time.time()
+dofiles = chunkfiles[0:20]
+result = MultiZarrToZarr(
+    dofiles,
+    concat_dims=["t"],
+    identical_dims=identical_dims
+).translate()
+end_time = time.time()
+elapsed = end_time - start_time
 
-chunk = all_keys_chunked[0]
+print(f"Processed {len(dofiles)} in {elapsed:.03f} sec.")
 
-def read_ref(key):
-    rgood = redis.Redis(db=2)
-    raw = rgood.get(key)
-    dct = ujson.loads(raw)
-    return dct
+import zstandard as zstd
+import os
 
-# Read an initial dict to get the commmon dims
-# c0 = ujson.loads(rgood.get(chunk[0]))
-ref0 = read_ref(chunk[0])
-f0 = ref0["refs"]["Rad/1.30"][0]
-dat = xr.open_dataset(f0)
-common_dims = list(dat.dims.keys())
-
-def process_chunk(chunk):
-    refs = list(map(read_ref, chunk))
-    result = MultiZarrToZarr(
-        refs,
-        coo_map={"t": "cf:t"},
-        concat_dims=["t"],
-        identical_dims=common_dims
-    ).translate()
-    return result
-
-r1 = process_chunk(chunk)
+wstart_time = time.time()
+with zstd.open("results/test.json.zst", "wb") as f:
+    f.write(ujson.dumps(result).encode())
+wend_time = time.time()
+welapsed = wend_time - wstart_time
+print(f"Writing output took f{welapsed:.03f} sec.")
