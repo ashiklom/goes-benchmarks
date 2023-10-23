@@ -2,6 +2,9 @@
 
 # Generate individual kerchunk JSON files for GOES data.
 
+import __main__
+INTERACTIVE = not hasattr(__main__, '__file__')
+
 import os
 import glob
 import xarray as xr
@@ -15,19 +18,26 @@ import dask
 import ujson
 import math
 import argparse
+import re
+
+if INTERACTIVE:
+    import importlib
+    import ref_utils
+    importlib.reload(ref_utils)
+from ref_utils import gen_refs, process_chunk
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--year', type=int, default=2022)
 parser.add_argument('--doy', type=int, default=1)
-parser.add_argument('--chunksize', type=int, default=50)
-args = parser.parse_args()
-# args = parser.parse_args(["--year", "2022", "--doy", "1"])
+if INTERACTIVE:
+    args = parser.parse_args(["--year", "2022", "--doy", "1"])
+else:
+    args = parser.parse_args()
 
 DDIR = os.path.join(f"{args.year:04d}", f"{args.doy:03d}")
 RESULTS = os.path.join("results")
 BADFILES = os.path.join(RESULTS, "badfiles")
 CHUNKS = os.path.join(RESULTS, "chunks", DDIR)
-CHUNKSIZE = args.chunksize
 
 finaldir = os.path.join(RESULTS, "final")
 os.makedirs(finaldir, exist_ok=True)
@@ -37,54 +47,10 @@ CACHEFILE = "goesfiles-all"
 BASEPATH = os.path.join("/css/geostationary/BackStage/GOES-17-ABI-L1B-FULLD", DDIR) 
 assert os.path.exists(BASEPATH)
 
-def gen_refs(f):
-    """
-    Generate a single Kerchunk reference dictionary for a given NetCDF file
-    """
-    try:
-        with open(f, 'rb') as infile:
-            refs = SingleHdf5ToZarr(infile, url=f).translate()
-        return {"file": f, "success": True, "refs": refs}
-    except OSError as error:
-        return {"file": f, "success": False, "error": str(error)}
-
-def process_chunk(paths, outfile):
-    """
-    Generate a combined Kerchunk reference for a list of NetCDF files 
-    and dump as JSON to `outfile`.
-    """
-    results = [gen_refs(f) for f in paths]
-
-    good = [r for r in results if r["success"]]
-    bad = [r for r in results if not r["success"]]
-    for item in bad:
-        fname = os.path.basename(item["file"]) + ".json"
-        fpath = os.path.join(BADFILES, fname)
-        with open(fpath, "w") as f:
-            f.write(ujson.dumps(item))
-
-    # Load first dataset to get common dimensions
-    d0 = xr.open_dataset(good[0]["file"])
-    identical_dims = list(d0.dims.keys())
-
-    refs = [r["refs"] for r in good]
-    multi = MultiZarrToZarr(
-        refs,
-        coo_map={"t": "cf:t"},
-        concat_dims=["t"],
-        identical_dims=identical_dims
-    ).translate()
-    with open(outfile, "wb") as f:
-        f.write(ujson.dumps(multi).encode())
-    return outfile
-
-def chunk_list(lst, n):
-    for i in range(0, len(lst), n):
-        yield lst[i:i+n]
-
 if __name__ == '__main__':
 
-    assert not os.path.exists(finalfile), f"{finalfile} already exists. Exiting..."
+    if not INTERACTIVE:
+        assert not os.path.exists(finalfile), f"{finalfile} already exists. Exiting..."
 
     import time
     print(f"Starting at {time.strftime('%c', time.localtime())}")
@@ -114,13 +80,12 @@ if __name__ == '__main__':
     else:
         print("Using existing dask cluster")
 
-    all_paths_chunked = list(chunk_list(all_paths, CHUNKSIZE))
-    nchunks = len(all_paths_chunked)
-    digits = int(math.log10(nchunks)) + 1
-    chunknames = [os.path.join(CHUNKS, str(i).zfill(digits) + ".json") for i in range(nchunks)]
-    assert len(all_paths_chunked) == len(chunknames)
+    # Group paths by band
+    unique_bands = sorted(set([re.search(r'M\d+C\d+', p).group() for p in all_paths]))
+    files_by_band = {band: [f for f in all_paths if band in f] for band in unique_bands}
 
-    pathtasks = [dask.delayed(process_chunk)(path, name) for path, name in zip(all_paths_chunked, chunknames)]
+    makename = lambda x: os.path.join(CHUNKS, x + ".json")
+    pathtasks = [dask.delayed(process_chunk)(files, makename(band), BADFILES) for band, files in files_by_band.items()]
 
     print("Beginning processing individual chunks...")
     start_time = time.time()
@@ -143,13 +108,18 @@ if __name__ == '__main__':
         "storage_options": {"fo": chunk_results[0][0]}
     })
     identical_dims = list(d0.dims.keys())
-    identical_dims.remove("t")
+    # identical_dims.remove("band")
 
+    # NOTE: Consolidation here doesn't work neatly because times aren't identical.
     print("Consolidating chunks into one result")
+    band_rxp = re.compile(r'.*/M\d+C(\d+).json$')
     fstart_time = time.time()
     day_result = MultiZarrToZarr(
         chunk_results[0],
-        concat_dims=["t"],
+        coo_map={"bandn": band_rxp},
+        coo_dtypes={"bandn": "i4"},
+        concat_dims=["bandn"],
+        # concat_dims=["band"],
         identical_dims=identical_dims
     ).translate()
     with open(finalfile, "wb") as f:
