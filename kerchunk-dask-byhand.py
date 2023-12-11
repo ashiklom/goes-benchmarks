@@ -27,8 +27,8 @@ if INTERACTIVE:
 from ref_utils import gen_refs, process_chunk
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--year', type=int, default=2022)
-parser.add_argument('--doy', type=int, default=1)
+parser.add_argument('--year', type=int)
+parser.add_argument('--doy', type=int)
 if INTERACTIVE:
     args = parser.parse_args(["--year", "2022", "--doy", "1"])
 else:
@@ -43,7 +43,6 @@ finaldir = os.path.join(RESULTS, "final")
 os.makedirs(finaldir, exist_ok=True)
 finalfile = os.path.join(finaldir, f"{args.year:04d}-{args.doy:03d}.json")
 
-CACHEFILE = "goesfiles-all"
 BASEPATH = os.path.join("/css/geostationary/BackStage/GOES-17-ABI-L1B-FULLD", DDIR) 
 assert os.path.exists(BASEPATH)
 
@@ -58,19 +57,10 @@ if __name__ == '__main__':
     os.makedirs(BADFILES, exist_ok=True)
     os.makedirs(CHUNKS, exist_ok=True)
 
-    # Read the file list (or generate it if it doesn't exist)
-    if os.path.exists(CACHEFILE):
-        print("Using cached list of goes files.")
-        with open(CACHEFILE, 'r') as f:
-            all_paths = sorted(f.read().splitlines())
-            all_paths = [f for f in all_paths if f.endswith(".nc")]
-    else:
-        print("Generating new GOES file list")
-        all_paths = sorted(glob.glob(os.path.join(BASEPATH, '**/*.nc'), recursive=True))
-        with open(CACHEFILE, 'w') as f:
-            f.write("\n".join(all_paths))
-
-    print(f"Processing {len(all_paths)} files")
+    # Identify files to process
+    all_paths = sorted(glob.glob(os.path.join(BASEPATH, '**/*.nc'), recursive=True))
+    print(f"Processing {len(all_paths)} files from {BASEPATH}")
+    print(f"Results will be stored in {finalfile}")
 
     # Launch Dask cluster for parallelization
     if not "cluster" in locals():
