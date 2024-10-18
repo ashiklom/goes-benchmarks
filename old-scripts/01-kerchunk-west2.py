@@ -11,7 +11,7 @@ from dask.delayed import delayed
 
 base_path = 's3://eso-west2-curated/Shared/geostationary/GOES-16/L1B/2019/203'
 outdir = "./data/results/kerchunk-west2"
-anon=False
+anon = False
 
 # import shutil
 # shutil.rmtree(outdir)
